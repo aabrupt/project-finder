@@ -1,0 +1,22 @@
+[package]
+name = "project-finder"
+description = """A simple command where you can create easy seachable workspaces
+for your projects. Command default to search without any arguments."""
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap = { version = "4.5.4", features = ["cargo", "derive"] }
+lazy_static = "1.4.0"
+pancurses = "0.17.0"
+serde = { version = "1.0.197", features = ["derive"] }
+shellexpand = { version = "3.1.0", features = ["path"] }
+thiserror = "1.0.58"
+toml = "0.8.12"
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
+
+[dev-dependencies]
+assert_fs = "1.1.1"
+serial_test = "3.0.0"
+temp-env = "0.3.6"
