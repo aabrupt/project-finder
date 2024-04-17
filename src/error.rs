@@ -3,7 +3,7 @@ use std::{env::VarError, path::PathBuf, sync::PoisonError};
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error(transparent)]
-    SystemError(#[from] std::io::Error),
+    IOError(#[from] std::io::Error),
     #[error(transparent)]
     VariableLookupError(#[from] shellexpand::LookupError<VarError>),
     #[error("Following path contain invalid characters: {0:?}")]

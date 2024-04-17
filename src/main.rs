@@ -1,26 +1,26 @@
 use std::{
-    env,
-    fs::{self, OpenOptions},
-    ops::{Deref, DerefMut},
-    path::PathBuf,
-    str::FromStr,
+    env, fs,
+    io::{stdin, stdout},
+    ops::Deref,
+    path::{Path, PathBuf},
     sync::Mutex,
 };
 
 use clap::{crate_version, ArgMatches};
 use lazy_static::lazy_static;
-use pancurses::{endwin, initscr, noecho};
 use serde::{Deserialize, Serialize};
-use toml::toml;
-use tracing::{debug, error, info, trace, Level};
+use termion::{event::Key, raw::IntoRawMode};
+use toml::{to_string, toml};
+use tracing::{error, Level};
 
 mod cli;
 mod error;
 mod logger;
 mod path_utils;
+mod tui;
 
 use error::Error;
-use tracing_subscriber::fmt::format;
+use tui::Window;
 
 lazy_static! {
     static ref CONFIG_FILE: Mutex<PathBuf> = Mutex::new(PathBuf::new());
@@ -30,11 +30,10 @@ lazy_static! {
 /// TODO: Respect .gitignore when searching
 /// TODO: Handle trying to add nested workspace directories and manually added nested workspace
 /// directories
+/// TODO: USE THE FUCKING PATH UTILS YOU HAVE PROGRAMMED!!!!
+/// TODO: Add tracing you dumb fuck, you wasted time setting it up alrady
 fn main() {
     let matches = cli::parse();
-
-    fzf(vec![PathBuf::from("/test")]);
-    return;
 
     logger::init(matches.get_one::<Level>("log_level").copied());
     if let Err(err) = _main(matches) {
@@ -45,7 +44,7 @@ fn _main(matches: ArgMatches) -> Result<(), Error> {
     {
         let mut config = CONFIG_FILE.lock()?;
         *config = path_utils::resolve_path_variables(
-            matches.get_one::<PathBuf>("config-file").cloned().ok_or(
+            matches.get_one::<PathBuf>("config_file").cloned().ok_or(
                 Error::UnhandledMissingArgument("config-file".to_string()),
             )?,
         )?;
@@ -84,6 +83,7 @@ fn _main(matches: ArgMatches) -> Result<(), Error> {
                     .ok_or(Error::UnhandledMissingArgument(
                         "project_dir".to_string(),
                     ))?;
+                let project = fs::canonicalize(project)?;
                 add_workspace_directory(name, project)
             }
             Some(("remove", command)) => {
@@ -113,16 +113,18 @@ fn _main(matches: ArgMatches) -> Result<(), Error> {
                 None => find_current_workspace()?,
             };
 
-            let directories = search_workspace(name);
-            todo!();
+            let directories = search_workspace(name)?;
+            fzf(directories)?;
+            Ok(())
         }
         Some((name, _)) => {
             return Err(Error::UnhandledAction(name.to_string()))
         }
         None => {
             let name = find_current_workspace()?;
-            let directories = search_workspace(name);
-            todo!();
+            let directories = search_workspace(name)?;
+            fzf(directories)?;
+            Ok(())
         }
     }
 }
@@ -216,49 +218,38 @@ fn search_directory(
     Ok(directories)
 }
 
-fn fzf(paths: Vec<PathBuf>) {
-    let window = initscr();
-    let mut search_term: Vec<char> = Vec::new();
-    noecho();
+fn fzf(paths: Vec<PathBuf>) -> Result<(), Error> {
+    let mut window =
+        Window::init(stdin(), stdout().lock().into_raw_mode()?, paths)?;
+    window.register_help(Key::Ctrl('c'), "Quit")?;
+    window.register_help(Key::Char('\n'), "Choose")?;
     loop {
-        window.mvaddstr(0, 0, "^Q - quit");
-        paths.iter().enumerate().for_each(|(i, path)|{
-            window.mvaddstr(
-                window.get_max_y() - (i as i32) - 3,
-                4,
-                path.to_string_lossy(),
-            );
-        });
-        window.mvaddstr(window.get_max_y() - 1, 0, "> ");
-        search_term.iter().for_each(|ch| {
-            window.addch(ch.to_owned());
-        });
-        let Some(input) = window.getch() else {
-            continue;
+        let input = window.get_input().to_string();
+        // TODO: Create a proper fzf filter function including sort etc
+        window.filter_paths(|path| path.to_str().unwrap().contains(&input));
+        window.draw_paths()?;
+        let key = match window.next() {
+            Some(key) => key?,
+            None => break,
         };
-        match input {
-            pancurses::Input::Character(ch) => {
-                match ch {
-                    '\x11' => break,
-                    '\x7F' => {
-                        let _ = search_term.pop();
-                        window.deleteln();
-                    }
-                    '\n' | '\r' => {
-                        // TODO: Implement using selected project
-                        continue;
-                    }
-                    _ => {
-                        search_term.push(ch);
-                        window.addch(ch);
-                    }
+        match key {
+            Key::Ctrl('c') => break,
+            Key::Char('\n') => {
+                let selected = match window.get_selected() {
+                    Some(selected) => selected,
+                    None => continue,
                 };
+                std::env::set_current_dir(selected)?;
+                break;
             }
-            pancurses::Input::KeyEIC => break,
+            Key::Char(ch) => window.push(ch),
+            Key::Backspace => {
+                let _ = window.pop();
+            }
             _ => continue,
         }
     }
-    endwin();
+    Ok(())
 }
 
 fn remove_workspace_directory(
@@ -354,7 +345,7 @@ struct Metadata {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::{path::Path, str::FromStr};
 
     use super::*;
     use assert_fs::TempDir;

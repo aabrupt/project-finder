@@ -8,9 +8,9 @@ edition = "2021"
 [dependencies]
 clap = { version = "4.5.4", features = ["cargo", "derive"] }
 lazy_static = "1.4.0"
-pancurses = "0.17.0"
 serde = { version = "1.0.197", features = ["derive"] }
 shellexpand = { version = "3.1.0", features = ["path"] }
+termion = { version = "3.0.0", features = ["serde"] }
 thiserror = "1.0.58"
 toml = "0.8.12"
 tracing = "0.1.40"
